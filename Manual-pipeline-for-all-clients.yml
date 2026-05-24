@@ -1,0 +1,207 @@
+parameters:
+  - name: Server
+    displayName: Server
+    type: string
+    default: client1
+    values:
+      - client1
+      - clinet2
+      - clinet3
+      - clinet4
+
+  - name: Environment
+    displayName: Environment
+    type: string
+    default: dev
+    values:
+      - dev
+      - qa
+      - uat
+      - stage
+      - prod
+
+  - name: CloudProvider
+    displayName: Cloud Provider
+    type: string
+    default: azure
+    values:
+      - azure
+      - aws
+      - gcp
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  - name: Environment
+    value: ${{ parameters.Environment }}
+  
+  - name: cloudProvider # Define the variable based on the parameter!
+    value: ${{ parameters.CloudProvider }}
+  
+  - name: blobStorageAccountName
+    ${{ if and(eq( parameters.Server, 'client1'), eq( parameters.Environment, 'dev')) }}:
+      value: $(devBlobStorageAccountName)
+    ${{ elseif and(eq( parameters.Server, 'client1'), eq( parameters.Environment, 'qa')) }}:
+      value: $(qaBlobStorageAccountName)
+    ${{ elseif and(eq( parameters.Server, 'client1'), eq( parameters.Environment, 'uat')) }}:
+      value: $(uatBlobStorageAccountName)
+    ${{ elseif and(eq( parameters.Server, 'client1'), eq( parameters.Environment, 'stage')) }}:
+      value: $(stageBlobStorageAccountName)
+    ${{ elseif and(eq( parameters.Server, 'client1'), eq( parameters.Environment, 'prod')) }}:
+      value: $(prodBlobStorageAccountName)
+    ${{ elseif and(eq( parameters.Server, 'clinet2'), eq( parameters.Environment, 'uat')) }}:
+      value: $(clinet2UatBlobStorageAccountName)
+    ${{ elseif and(eq( parameters.Server, 'clinet2'), eq( parameters.Environment, 'prod')) }}:
+      value: $(clinet2ProdBlobStorageAccountName)
+    ${{ elseif and(eq( parameters.Server, 'clinet3'), eq( parameters.Environment, 'uat')) }}:
+      value: $(clinet3UatBlobStorageAccountName)
+    ${{ elseif and(eq( parameters.Server, 'clinet3'), eq( parameters.Environment, 'prod')) }}:
+      value: $(clinet3ProdBlobStorageAccountName)
+    ${{ elseif and(eq( parameters.Server, 'clinet4'), eq( parameters.Environment, 'uat')) }}:
+      value: $(clinet4UatBlobStorageAccountName)
+    ${{ elseif and(eq( parameters.Server, 'clinet4'), eq( parameters.Environment, 'prod')) }}:
+      value: $(clinet4ProdBlobStorageAccountName)
+  
+  - name: buildPrefix
+    ${{ if eq( parameters.Server, 'client1') }}:
+      value: ""
+    ${{ elseif eq( parameters.Server, 'clinet2' ) }}:
+      value: "clinet2."
+    ${{ elseif eq( parameters.Server, 'clinet3' ) }}:
+      value: "clinet3."
+    ${{ elseif eq( parameters.Server, 'clinet4' ) }}:
+      value: "clinet4."
+
+  - name: buildEnvironment
+    ${{ if eq( parameters.Server, 'client1') }}:
+      value: ${{ parameters.Environment }}
+    ${{ elseif and(eq( parameters.Server, 'clinet2'), eq( parameters.Environment, 'uat')) }}:
+      value: 'clinet2-uat'
+    ${{ elseif and(eq( parameters.Server, 'clinet2'), eq( parameters.Environment, 'prod')) }}:
+      value: 'clinet2'
+    ${{ elseif and(eq( parameters.Server, 'clinet3'), eq( parameters.Environment, 'uat')) }}:
+      value: 'clinet3'
+    ${{ elseif and(eq( parameters.Server, 'clinet3'), eq( parameters.Environment, 'prod')) }}:
+      value: 'clinet3'
+    ${{ elseif and(eq( parameters.Server, 'clinet4'), eq( parameters.Environment, 'uat')) }}:
+      value: 'clinet4-uat'
+    ${{ elseif and(eq( parameters.Server, 'clinet4'), eq( parameters.Environment, 'prod')) }}:
+      value: 'clinet4'
+
+  - name: azureResourceConnection # Separate variable for Azure
+    ${{ if in(parameters.Server, 'client1', 'clinet2') }}:  # Simplified condition
+      value: 'client1-CIN-ARM-ALL'
+    ${{ else }}:
+      value: 'client1-CIN-ARM-ALL'
+  
+  - name: awsResourceConnection # Separate variable for AWS
+    ${{ if eq(parameters.Server, 'clinet3') }}:
+      value: 'clinet3'
+    ${{ else }}:
+      value: 'clinet3'
+  
+  - name: s3BucketRegion # Separate variable for AWS
+    ${{ if eq(parameters.Server, 'clinet3') }}:
+      value: '$(clinet3S3RegionName)'
+    ${{ else }}:
+      value: '$(clinet3S3RegionName)'
+  
+  - name: securefile
+    ${{ if and(eq( parameters.Server, 'clinet4'), eq( parameters.Environment, 'uat')) }}:
+      value: clinet4-uat.json
+    ${{ else }}:
+      value: clinet4-uat.json
+    
+
+  - name: gcpjson
+    value: '/home/vsts/work/_temp/$(securefile)'
+
+stages:
+- stage: Deploy
+  displayName: Scan & Deploy
+
+  jobs:
+    - deployment: deploy
+      displayName: Deploy
+      environment: $(buildEnvironment)
+      strategy:
+        runOnce:
+          deploy:
+            steps:
+              - download: none
+              - checkout: self
+              - task: NodeTool@0
+                inputs:
+                  versionSpec: '16.16.0'
+                displayName: 'Install Node.js'
+              
+              - script: |
+                  echo "$(npmAuthenticateToken)" > .npmrc
+                displayName: "Generate .npmrc file with secret token"
+
+              - script: |
+                  npm install --legacy-peer-deps --omit=dev
+                  npm install env-cmd
+                  npm run build:$(buildPrefix)$(Environment) --production
+                displayName: 'npm install and build'
+              
+              - task: DownloadSecureFile@1
+                displayName: Downloading GCP Json File
+                condition: eq(variables.cloudProvider, 'gcp')
+                inputs:
+                  secureFile: '$(securefile)'
+              - task: GcloudRunner@0
+                displayName: Activating GCP Service
+                condition: eq(variables.cloudProvider, 'gcp')
+                inputs:
+                  command: 'auth activate-service-account'
+                  arguments: '--key-file=$(gcpjson)'
+
+              - task: AzureCLI@2
+                displayName: Uploading Build Folder To Azure Blob
+                condition: eq(variables.cloudProvider, 'azure')
+                inputs:
+                  azureSubscription: $(azureResourceConnection)
+                  scriptType: "pscore"
+                  scriptLocation: "inlineScript"
+                  inlineScript: |
+                    $blobs = az storage blob list --account-name $(blobStorageAccountName) --container-name '$web' --prefix 'client1/' --query "[].name" -o tsv
+                    foreach ($blob in $blobs) {
+                        az storage blob delete --account-name $(blobStorageAccountName) --container-name '$web' --name $blob
+                    }
+                    az storage blob upload-batch --destination '$web/client1' --account-name $(blobStorageAccountName) --source $(Build.SourcesDirectory)/build --overwrite
+                    az storage blob copy start --account-name $(blobStorageAccountName) --source-container '$web' --source-blob 'client1/index.html' --destination-container '$web' --destination-blob 'index.html'
+
+              - task: AWSCLI@1
+                displayName: Uploading Build Folder To S3 Bucket
+                condition: eq(variables.cloudProvider, 'aws')
+                inputs:
+                  awsCredentials: '$(awsResourceConnection)'
+                  regionName: '$(s3BucketRegion)'
+                  awsCommand: 's3'
+                  awsSubCommand: 'cp'
+                  awsArguments: $(Build.SourcesDirectory)/build s3://$(blobStorageAccountName)/client1 --recursive         
+              - task: AWSCLI@1
+                displayName: Copying Index.html To S3 Bucket
+                condition: eq(variables.cloudProvider, 'aws')
+                inputs:
+                  awsCredentials: '$(awsResourceConnection)'
+                  regionName: '$(s3BucketRegion)'
+                  awsCommand: 's3'
+                  awsSubCommand: 'cp'
+                  awsArguments: s3://$(blobStorageAccountName)/client1/index.html s3://$(blobStorageAccountName)
+    
+              - script: |
+                  gsutil -m rm -r gs://$(blobStorageAccountName)/client1
+                  gsutil -m cp -r $(Build.SourcesDirectory)/build gs://$(blobStorageAccountName)/client1
+                displayName: Uploading Build Folder To GCP Bucket
+                condition: eq(variables.cloudProvider, 'gcp')
+
+              - script: |
+                  gsutil cp gs://$(blobStorageAccountName)/client1/index.html gs://$(blobStorageAccountName)/
+                displayName: Copying Index.html To GCP Bucket
+                condition: eq(variables.cloudProvider, 'gcp')
+            
+              - script: rm -f .npmrc
+                displayName: "Clean up .npmrc file"
