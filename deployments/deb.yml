@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: debezium
+  labels:
+    app: debezium
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: debezium
+  template:
+    metadata:
+      labels:
+        app: debezium
+    spec:
+      nodeSelector:
+        node-type: name_space
+      initContainers:
+        - name: wait-for-kafka
+          image: busybox
+          command: ['sh', '-c', 'until nc -z kafka-service 9092; do echo "waiting for Kafka"; sleep 5; done']
+        - name: wait-for-schema-registry
+          image: busybox
+          command: ['sh', '-c', 'until nc -z schema-cdc 8081; do echo "waiting for Schema Registry"; sleep 5; done']
+        - name: wait-extra
+          image: busybox
+          command: ['sh', '-c', 'echo "Waiting an additional 1 minutes"; sleep 60']
+      containers:
+        - name: debezium
+          image: container_registry/debezium-server_environment-name_space:build_id
+          volumeMounts:
+            - name: kafka-connect-logging-properties
+              mountPath: /etc/kafka-connect/log4j.properties
+              subPath: log4j.properties
+              readOnly: true 
+          envFrom:
+          - secretRef:
+              name: kafka-debezium-config-secrets
+          ports:
+            - containerPort: 8083
+              protocol: TCP
+          # resources:
+          #   limits:
+          #     cpu: '1'
+          #     memory: 4Gi
+          #   requests:
+          #     cpu: 500m
+          #     memory: 2Gi
+      volumes:
+        - name: kafka-connect-logging-properties
+          configMap:
+            name: kafka-connect-logging-properties
+        - name: kafka-connect-config
+          configMap:
+            name: kafka-connect-properties
