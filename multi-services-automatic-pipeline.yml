@@ -1,0 +1,420 @@
+trigger:
+- dev
+
+variables:
+  dockerRegistryServiceConnection: 'c1c632d7-148b-41c8-942d-3e71b69260f4'
+  debeziumdockerfilePath: '$(Build.SourcesDirectory)/DebeziumDocker'
+  kafkadockerfilePath: '$(Build.SourcesDirectory)/KafkaDocker'
+  zookeeperdockerfilePath: '$(Build.SourcesDirectory)/ZookeeperDocker'
+  schemadockerfilePath: '$(Build.SourcesDirectory)/SchemaDocker'
+  imageRepository: 'cdcservice'
+  containerRegistry: 'clientcinacrall.azurecr.io'
+  imagePullSecret: docker-registry-creds
+  tag: '$(Build.BuildId)'
+  vmImageName: ubuntu-latest
+  dev-namespace: 'dev'
+  qa-namespace: 'qa'
+  serverEnvironment: 'client'
+  dev-environment: 'dev'
+  qa-environment: 'qa'
+
+stages:
+  - stage: Build
+    displayName: Build and push stage
+    jobs:
+    - job: Build
+      displayName: Build
+      pool:
+        vmImage: $(vmImageName)
+      steps:
+      - task: DockerInstaller@0
+        inputs:
+          dockerVersion: '17.09.0-ce'
+      
+      - script: |
+            docker run -v $(pwd):/source trufflesecurity/trufflehog:latest filesystem /source  --only-verified --fail 
+      - task: Docker@2
+        displayName: Build and push an debezium image to container registry
+        inputs:
+          command: buildAndPush
+          repository: debezium-dpai-$(serverEnvironment)-$(dev-environment)
+          dockerfile: $(debeziumdockerfilePath)
+          containerRegistry: $(dockerRegistryServiceConnection)
+          tags: |
+            $(tag)
+      - upload: deployments
+        artifact: deployments  
+
+      - task: Docker@2
+        displayName: Build and push an kafka image to container registry
+        inputs:
+          command: buildAndPush
+          repository: kafka-dpai-$(serverEnvironment)-$(dev-environment)
+          dockerfile: $(kafkadockerfilePath)
+          containerRegistry: $(dockerRegistryServiceConnection)
+          tags: |
+            $(tag)
+      - upload: deployments
+        artifact: deployments
+        
+      - task: Docker@2
+        displayName: Build and push an zookeeper image to container registry
+        inputs:
+          command: buildAndPush
+          repository: zookeeper-dpai-$(serverEnvironment)-$(dev-environment)
+          dockerfile: $(zookeeperdockerfilePath)
+          containerRegistry: $(dockerRegistryServiceConnection)
+          tags: |
+            $(tag)
+      - upload: deployments
+        artifact: deployments
+
+      - task: Docker@2
+        displayName: Build and push an schema image to container registry
+        inputs:
+          command: buildAndPush
+          repository: schema-dpai-$(serverEnvironment)-$(dev-environment)
+          dockerfile: $(schemadockerfilePath)
+          containerRegistry: $(dockerRegistryServiceConnection)
+          tags: |
+            $(tag)
+      - upload: deployments
+        artifact: deployments
+
+  - stage: Deploy_CDC_Dev
+    displayName: Deploy CDC to Dev
+    dependsOn: Build
+    jobs:
+    - deployment:
+      timeoutInMinutes: 25
+      displayName: Deploy to AKS CDC
+      pool:
+        vmImage: $(vmImageName)
+      environment: dev
+      strategy:
+        runOnce:
+          deploy:
+            steps:
+            - task: CmdLine@2
+              inputs:
+                script: |
+                  # Navigate to the deployments directory and list files
+                  cd $(Pipeline.Workspace)/deployments
+                  ls -lrt
+
+                  # Zookeeper
+                  sed -i "s|name_space|$(dev-namespace)|g; s|server_environment|$(serverEnvironment)|g; s|container_registry|$(containerRegistry)|g; s|build_id|$(Build.BuildId)|g" zookeeper.yaml
+
+                  # Kafka
+                  sed -i "s|name_space|$(dev-namespace)|g; s|server_environment|$(serverEnvironment)|g; s|container_registry|$(containerRegistry)|g; s|build_id|$(Build.BuildId)|g" kafka.yaml
+
+                  # Schema Registry
+                  sed -i "s|name_space|$(dev-namespace)|g; s|server_environment|$(serverEnvironment)|g; s|container_registry|$(containerRegistry)|g; s|build_id|$(Build.BuildId)|g" schema-registry.yaml
+
+                  # Debezium
+                  sed -i "s|name_space|$(dev-namespace)|g; s|server_environment|$(serverEnvironment)|g; s|container_registry|$(containerRegistry)|g; s|build_id|$(Build.BuildId)|g" debezium.yaml
+
+                  # Kafdrop
+                  sed -i "s|name_space|$(dev-namespace)|g; s|server_environment|$(serverEnvironment)|g; s|container_registry|$(containerRegistry)|g; s|build_id|$(Build.BuildId)|g" kafdrop.yaml
+
+            # Delete all deployments and start in the orders after deployments
+            - task: KubernetesManifest@1
+              displayName: Delete deployment kafdrop
+              inputs:
+                kubernetesServiceConnection: client-CIN-AKS-DQU
+                namespace: $(dev-namespace)
+                action: delete
+                arguments: statefulset kafdrop
+              continueOnError: true  # Continue even if tests fail
+
+            - task: KubernetesManifest@1
+              displayName: Delete deployment debezium
+              inputs:
+                kubernetesServiceConnection: client-CIN-AKS-DQU
+                namespace: $(dev-namespace)
+                action: delete
+                arguments: statefulset debezium
+              continueOnError: true  # Continue even if tests fail
+              
+
+            - task: KubernetesManifest@1
+              displayName: Delete deployment schema-registry
+              inputs:
+                kubernetesServiceConnection: client-CIN-AKS-DQU
+                namespace: $(dev-namespace)
+                action: delete
+                arguments: statefulset schema-cdc
+              continueOnError: true  # Continue even if tests fail
+
+            - task: KubernetesManifest@1
+              displayName: Delete deployment kafka-service
+              inputs:
+                kubernetesServiceConnection: client-CIN-AKS-DQU
+                namespace: $(dev-namespace)
+                action: delete
+                arguments: statefulset kafka-service
+              continueOnError: true  # Continue even if tests fail
+
+            - task: KubernetesManifest@1
+              displayName: Delete deployment zookeeper
+              inputs:
+                kubernetesServiceConnection: client-CIN-AKS-DQU
+                namespace: $(dev-namespace)
+                action: delete
+                arguments: statefulset zookeeper
+              continueOnError: true  # Continue even if tests fail
+
+            - task: KubernetesManifest@1
+              displayName: Deploy zookeeper to Kubernetes cluster
+              inputs:
+                kubernetesServiceConnection: client-CIN-AKS-DQU
+                namespace: $(dev-namespace)
+                action: deploy
+                manifests: |
+                  $(Pipeline.Workspace)/deployments/zookeeper.yaml
+                  $(Pipeline.Workspace)/deployments/zookeeper-service.yaml
+                imagePullSecrets: |
+                  $(imagePullSecret)
+            
+            - task: KubernetesManifest@1
+              displayName: Deploy kafka-service to Kubernetes cluster
+              inputs:
+                kubernetesServiceConnection: client-CIN-AKS-DQU
+                namespace: $(dev-namespace)
+                action: deploy
+                manifests: |
+                  $(Pipeline.Workspace)/deployments/kafka.yaml
+                  $(Pipeline.Workspace)/deployments/kafka-service.yaml
+                imagePullSecrets: |
+                  $(imagePullSecret)
+
+            - task: KubernetesManifest@1
+              displayName: Deploy schema-registry to Kubernetes cluster
+              inputs:
+                kubernetesServiceConnection: client-CIN-AKS-DQU
+                namespace: $(dev-namespace)
+                action: deploy
+                manifests: |
+                  $(Pipeline.Workspace)/deployments/schema-registry.yaml
+                  $(Pipeline.Workspace)/deployments/schema-service.yaml
+                imagePullSecrets: |
+                  $(imagePullSecret)
+
+            - task: KubernetesManifest@1
+              displayName: Deploy debezium to Kubernetes cluster
+              inputs:
+                kubernetesServiceConnection: client-CIN-AKS-DQU
+                namespace: $(dev-namespace)
+                action: deploy
+                manifests: |
+                  $(Pipeline.Workspace)/deployments/debezium.yaml
+                  $(Pipeline.Workspace)/deployments/debezium-service.yaml
+                imagePullSecrets: |
+                  $(imagePullSecret)
+            
+            - task: KubernetesManifest@1
+              displayName: Deploy kafdrop to Kubernetes cluster
+              inputs:
+                kubernetesServiceConnection: client-CIN-AKS-DQU
+                namespace: $(dev-namespace)
+                action: deploy
+                manifests: |
+                  $(Pipeline.Workspace)/deployments/kafdrop.yaml
+                  $(Pipeline.Workspace)/deployments/kafdrop-service.yaml
+                imagePullSecrets: |
+                  $(imagePullSecret)
+
+
+  - stage: Deploy_CDC_Qa
+    displayName: Deploy CDC to Qa
+    dependsOn: Build
+    jobs:
+    - deployment:
+      timeoutInMinutes: 20
+      displayName: Deploy to AKS CDC
+      pool:
+        vmImage: $(vmImageName)
+      environment: qa
+      strategy:
+        runOnce:
+          deploy:
+            steps:
+            - task: Docker@2
+              displayName: Pull and tag image from Dev repository
+              inputs:
+                command: login
+                containerRegistry: $(dockerRegistryServiceConnection)
+
+            - script: |
+                docker pull $(containerRegistry)/debezium-dpai-$(serverEnvironment)-dev:$(tag)
+                docker tag $(containerRegistry)/debezium-dpai-$(serverEnvironment)-dev:$(tag) $(containerRegistry)/debezium-dpai-$(serverEnvironment)-$(qa-environment):$(tag)
+                docker pull $(containerRegistry)/kafka-dpai-$(serverEnvironment)-dev:$(tag)
+                docker tag $(containerRegistry)/kafka-dpai-$(serverEnvironment)-dev:$(tag) $(containerRegistry)/kafka-dpai-$(serverEnvironment)-$(qa-environment):$(tag)
+                docker pull $(containerRegistry)/zookeeper-dpai-$(serverEnvironment)-dev:$(tag)
+                docker tag $(containerRegistry)/zookeeper-dpai-$(serverEnvironment)-dev:$(tag) $(containerRegistry)/zookeeper-dpai-$(serverEnvironment)-$(qa-environment):$(tag)
+                docker pull $(containerRegistry)/schema-dpai-$(serverEnvironment)-dev:$(tag)
+                docker tag $(containerRegistry)/schema-dpai-$(serverEnvironment)-dev:$(tag) $(containerRegistry)/schema-dpai-$(serverEnvironment)-$(qa-environment):$(tag)
+              displayName: 'Pull and Tag Docker Image'
+
+            - task: Docker@2
+              displayName: Push debezium image to QA repository
+              inputs:
+                command: push
+                repository: debezium-dpai-$(serverEnvironment)-qa
+                containerRegistry: $(dockerRegistryServiceConnection)
+                tags: |
+                  $(tag)
+
+            - task: Docker@2
+              displayName: Push kafka image to QA repository
+              inputs:
+                command: push
+                repository: kafka-dpai-$(serverEnvironment)-qa
+                containerRegistry: $(dockerRegistryServiceConnection)
+                tags: |
+                  $(tag)
+
+            - task: Docker@2
+              displayName: Push zookeeper image to QA repository
+              inputs:
+                command: push
+                repository: zookeeper-dpai-$(serverEnvironment)-qa
+                containerRegistry: $(dockerRegistryServiceConnection)
+                tags: |
+                  $(tag)
+
+            - task: Docker@2
+              displayName: Push schema image to QA repository
+              inputs:
+                command: push
+                repository: schema-dpai-$(serverEnvironment)-qa
+                containerRegistry: $(dockerRegistryServiceConnection)
+                tags: |
+                  $(tag)
+
+            - task: CmdLine@2
+              inputs:
+                script: |
+                  # Navigate to the deployments directory and list files
+                  cd $(Pipeline.Workspace)/deployments
+                  ls -lrt
+                  # Zookeeper
+                  sed -i "s|name_space|$(qa-namespace)|g; s|server_environment|$(serverEnvironment)|g; s|container_registry|$(containerRegistry)|g; s|build_id|$(Build.BuildId)|g" zookeeper.yaml
+
+                  # Kafka
+                  sed -i "s|name_space|$(qa-namespace)|g; s|server_environment|$(serverEnvironment)|g; s|container_registry|$(containerRegistry)|g; s|build_id|$(Build.BuildId)|g" kafka.yaml
+
+                  # Schema Registry
+                  sed -i "s|name_space|$(qa-namespace)|g; s|server_environment|$(serverEnvironment)|g; s|container_registry|$(containerRegistry)|g; s|build_id|$(Build.BuildId)|g" schema-registry.yaml
+
+                  # Debezium
+                  sed -i "s|name_space|$(qa-namespace)|g; s|server_environment|$(serverEnvironment)|g; s|container_registry|$(containerRegistry)|g; s|build_id|$(Build.BuildId)|g" debezium.yaml
+
+                  # Kafdrop
+                  sed -i "s|name_space|$(qa-namespace)|g; s|server_environment|$(serverEnvironment)|g; s|container_registry|$(containerRegistry)|g; s|build_id|$(Build.BuildId)|g" kafdrop.yaml
+              
+            # Delete all deployments and start in the orders after deployments
+            - task: KubernetesManifest@1
+              displayName: Delete deployment kafdrop
+              inputs:
+                kubernetesServiceConnection: client-CIN-AKS-DQU
+                namespace: qa
+                action: delete
+                arguments: deployment kafdrop
+              continueOnError: true  # Continue even if tests fail
+
+            - task: KubernetesManifest@1
+              displayName: Delete deployment debezium
+              inputs:
+                kubernetesServiceConnection: client-CIN-AKS-DQU
+                namespace: qa
+                action: delete
+                arguments: deployment debezium
+              continueOnError: true  # Continue even if tests fail
+
+            - task: KubernetesManifest@1
+              displayName: Delete deployment schema-registry
+              inputs:
+                kubernetesServiceConnection: client-CIN-AKS-DQU
+                namespace: qa
+                action: delete
+                arguments: deployment schema
+              continueOnError: true  # Continue even if tests fail
+
+            - task: KubernetesManifest@1
+              displayName: Delete deployment kafka-service
+              inputs:
+                kubernetesServiceConnection: client-CIN-AKS-DQU
+                namespace: qa
+                action: delete
+                arguments: deployment kafka-service
+              continueOnError: true  # Continue even if tests fail
+
+            - task: KubernetesManifest@1
+              displayName: Delete deployment zookeeper
+              inputs:
+                kubernetesServiceConnection: client-CIN-AKS-DQU
+                namespace: qa
+                action: delete
+                arguments: deployment zookeeper
+              continueOnError: true  # Continue even if tests fail
+
+            - task: KubernetesManifest@1
+              displayName: Deploy zookeeper to Kubernetes cluster
+              inputs:
+                kubernetesServiceConnection: client-CIN-AKS-DQU
+                namespace: qa
+                action: deploy
+                manifests: |
+                  $(Pipeline.Workspace)/deployments/zookeeper.yaml
+                  $(Pipeline.Workspace)/deployments/zookeeper-service.yaml
+                imagePullSecrets: |
+                  $(imagePullSecret)
+            
+            - task: KubernetesManifest@1
+              displayName: Deploy kafka-service to Kubernetes cluster
+              inputs:
+                kubernetesServiceConnection: client-CIN-AKS-DQU
+                namespace: qa
+                action: deploy
+                manifests: |
+                  $(Pipeline.Workspace)/deployments/kafka.yaml
+                  $(Pipeline.Workspace)/deployments/kafka-service.yaml
+                imagePullSecrets: |
+                  $(imagePullSecret)
+
+            - task: KubernetesManifest@1
+              displayName: Deploy schema-registry to Kubernetes cluster
+              inputs:
+                kubernetesServiceConnection: client-CIN-AKS-DQU
+                namespace: qa
+                action: deploy
+                manifests: |
+                  $(Pipeline.Workspace)/deployments/schema-registry.yaml
+                  $(Pipeline.Workspace)/deployments/schema-service.yaml
+                imagePullSecrets: |
+                  $(imagePullSecret)
+
+            - task: KubernetesManifest@1
+              displayName: Deploy debezium to Kubernetes cluster
+              inputs:
+                kubernetesServiceConnection: client-CIN-AKS-DQU
+                namespace: qa
+                action: deploy
+                manifests: |
+                  $(Pipeline.Workspace)/deployments/debezium.yaml
+                  $(Pipeline.Workspace)/deployments/debezium-service.yaml
+                imagePullSecrets: |
+                  $(imagePullSecret)
+            
+            - task: KubernetesManifest@1
+              displayName: Deploy kafdrop to Kubernetes cluster
+              inputs:
+                kubernetesServiceConnection: client-CIN-AKS-DQU
+                namespace: qa
+                action: deploy
+                manifests: |
+                  $(Pipeline.Workspace)/deployments/kafdrop.yaml
+                  $(Pipeline.Workspace)/deployments/kafdrop-service.yaml
+                imagePullSecrets: |
+                  $(imagePullSecret)
