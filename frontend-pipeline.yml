@@ -1,0 +1,132 @@
+# Node.js with React
+# Build a Node.js project that uses React.
+# Add steps that analyze code, save build artifacts, deploy, and more:
+# https://docs.microsoft.com/azure/devops/pipelines/languages/javascript
+
+trigger:
+  - dev
+
+pool:
+  vmImage: ubuntu-latest
+
+stages:
+  - stage: DEV
+    displayName: Scan & Deploy to DEV
+
+    jobs:
+      - job: build
+        displayName: Build app
+
+        steps:
+          - task: NodeTool@0
+            inputs:
+              versionSpec: "18.12.0"
+            displayName: "Install Node.js"
+
+          - script: |
+              echo "$(npmAuthenticateToken)" > .npmrc
+            displayName: "Generate .npmrc file with secret token"
+
+          - script: |
+              npm install env-cmd --legacy-peer-deps
+            displayName: "Installing Dependencies"
+
+          - script: |
+              npm run test
+            displayName: "Run Unit Test Cases"
+
+          - task: SonarQubePrepare@7
+            displayName: Prepare Analysis Configuration task
+            inputs:
+              SonarQube: "sonarqube"
+              scannerMode: "CLI"
+              configMode: "manual"
+              cliProjectKey: "path_path_frontend_container_AYpgOaXOcRvk1r9QhQr9"
+              extraProperties: |
+                sonar.cpd.exclusions=src/utils/Constants.js,**/__tests__/**, src/__tests__/,src/utils/RouteHelper/**
+                sonar.sources=src/
+                sonar.javascript.lcov.reportPaths=coverage/lcov.info
+                sonar.testExecutionReportPaths=reports/path-Container-frontend-reporter.xml
+                sonar.exclusions=**/node_modules/**,**/build/**,reports/**,coverage/**,**/__tests__/**
+                sonar.tests=src/__tests__/
+                sonar.test.exclusions=**/__tests__/**
+                sonar.test.inclusions=**/*.test.js, **/*.spec.js
+                sonar.coverage.exclusions=src/__tests__/_helper_/**,src/__tests__/_mocks_/**,src/reportWebVitals.js,src/serviceWorker.js,src/index.js,src/setupTests.js,src/i18n.js,src/style/**,src/utils/ErrorBoundary.js
+
+          - script: |
+              FILTERED_PARAMS=$(echo $SONARQUBE_SCANNER_PARAMS | sed 's/"sonar.branch.name":"[^"]*"\,//g')
+              echo "##vso[task.setvariable variable=SONARQUBE_SCANNER_PARAMS]$FILTERED_PARAMS"
+            displayName: Filter out non-CE sonar parameters
+
+          - task: SonarQubeAnalyze@7
+            displayName: Run Code Analysis task
+
+          - task: SonarQubePublish@7
+            displayName: Publish Quality Gate Result task
+            inputs:
+              pollingTimeoutSec: "300"
+              testExecutionReportPaths: "reports/path-Container-frontend-reporter.xml"
+
+          - script: |
+              npm run build:dev --omit=dev
+            displayName: "npm build"
+
+          - task: AzureCLI@2
+            inputs:
+              azureSubscription: "path-CIN-ARM-ALL"
+              scriptType: "pscore"
+              scriptLocation: "inlineScript"
+              inlineScript: |
+                $blobs = az storage blob list --account-name $(devBlobStorageAccountName) --container-name '$web' --prefix 'path/' --query "[].name" -o tsv
+                foreach ($blob in $blobs) {
+                    az storage blob delete --account-name $(devBlobStorageAccountName) --container-name '$web' --name $blob
+                }
+                az storage blob upload-batch --destination '$web/path' --account-name $(devBlobStorageAccountName) --source $(Build.SourcesDirectory)/build --overwrite
+                az storage blob copy start --account-name $(devBlobStorageAccountName) --source-container '$web' --source-blob 'path/index.html' --destination-container '$web' --destination-blob 'index.html'
+
+          - script: rm -f .npmrc
+            displayName: "Clean up .npmrc file"
+
+  - stage: deploy_qa
+    displayName: Deploy to QA
+
+    jobs:
+      - deployment: deploy
+        displayName: Deploy
+        environment: qa
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - download: none
+                - checkout: self
+
+                - task: NodeTool@0
+                  inputs:
+                    versionSpec: "16.16.0"
+                  displayName: "Install Node.js"
+
+                - script: |
+                    echo "$(npmAuthenticateToken)" > .npmrc
+                  displayName: "Generate .npmrc file with secret token"
+
+                - script: |
+                    npm install env-cmd --legacy-peer-deps --omit=dev 
+                    npm run build:qa --omit=dev
+                  displayName: "npm install and build"
+
+                - task: AzureCLI@2
+                  inputs:
+                    azureSubscription: "<subscription-name>"
+                    scriptType: "pscore"
+                    scriptLocation: "inlineScript"
+                    inlineScript: |
+                      $blobs = az storage blob list --account-name $(qaBlobStorageAccountName) --container-name '$web' --prefix 'path/' --query "[].name" -o tsv
+                      foreach ($blob in $blobs) {
+                          az storage blob delete --account-name $(qaBlobStorageAccountName) --container-name '$web' --name $blob
+                      }
+                      az storage blob upload-batch --destination '$web/path' --account-name $(qaBlobStorageAccountName) --source $(Build.SourcesDirectory)/build --overwrite
+                      az storage blob copy start --account-name $(qaBlobStorageAccountName) --source-container '$web' --source-blob 'path/index.html' --destination-container '$web' --destination-blob 'index.html'
+
+                - script: rm -f .npmrc
+                  displayName: "Clean up .npmrc file"
