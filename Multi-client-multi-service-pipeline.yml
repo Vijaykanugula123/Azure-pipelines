@@ -1,0 +1,633 @@
+parameters:
+- name: Server
+  displayName: Server
+  type: string
+  default: client1
+  values:
+  - client1
+  - client2
+  - client3
+  - client4
+  - client5
+
+- name: Environment
+  displayName: Environment
+  type: string
+  default: dev
+  values:
+  - dev
+  - qa
+  - uat
+  - stage
+  - prod
+
+- name: CloudProvider
+  displayName: Cloud Provider
+  type: string
+  default: azure
+  values:
+    - azure
+    - aws
+    - gcp
+# - name: freeResources
+#   type: boolean
+#   default: false
+#   displayName: Using free resources
+
+# - name: staticResources
+#   type: boolean
+#   default: false
+#   displayName: Using static resources
+
+# - name: useResources
+#   type: boolean
+#   default: false
+#   displayName: Use resource limits and requests?
+
+# - name: zookeeperLimitCPu
+#   type: string
+#   default: "1"
+#   displayName: Enter max CPU Limit in cores only (e.g., "1", "1.5")
+
+# - name: zookeeperRequestCpu
+#   type: string
+#   default: "1"
+#   displayName: Enter CPU Request cores only (e.g., "1", "1.5")
+
+# - name: zookeeperLimitRam
+#   type: string
+#   default: "1"
+#   displayName: Enter max Memory Limit in Gi only (e.g., "0.1","1", "1.5",)
+
+# - name: zookeeperRequestram
+#   type: string
+#   default: "1"
+#   displayName: Enter Memory Request in Gi only (e.g., "0.1","1", "1.5",)
+
+variables:
+  - name: cloudProvider # Define the variable based on the parameter!
+    value: ${{ parameters.CloudProvider }}
+  - name: dockerRegistryServiceConnection
+    ${{ if and(eq( parameters.Server, 'client1'), eq( parameters.Environment, 'dev')) }}:
+      value: c1c632d7-148b-41c8-942d-3e71b69260f4
+    ${{ elseif and(eq( parameters.Server, 'client1'), eq( parameters.Environment, 'qa')) }}:
+      value: c1c632d7-148b-41c8-942d-3e71b69260f4
+    ${{ elseif and(eq( parameters.Server, 'client1'), eq( parameters.Environment, 'stage')) }}:
+      value: c1c632d7-148b-41c8-942d-3e71b69260f4
+    ${{ elseif and(eq( parameters.Server, 'client1'), eq( parameters.Environment, 'uat')) }}:
+      value: c1c632d7-148b-41c8-942d-3e71b69260f4
+    ${{ elseif and(eq( parameters.Server, 'client1'), eq( parameters.Environment, 'prod')) }}:
+      value: c1c632d7-148b-41c8-942d-3e71b69260f4
+    ${{ elseif and(eq( parameters.Server, 'client2'), eq( parameters.Environment, 'uat')) }}:
+      value: c1c632d7-148b-41c8-942d-3e71b69260f4
+    ${{ elseif and(eq( parameters.Server, 'client3'), eq( parameters.Environment, 'uat')) }}:
+      value: c1c632d7-148b-41c8-942d-3e71b69260f4
+    ${{ elseif and(eq( parameters.Server, 'client4'), eq( parameters.Environment, 'uat')) }}:
+      value: 6e51fd90-b318-4dfc-9fff-887bb0f57b16
+    ${{ elseif and(eq( parameters.Server, 'client5'), eq( parameters.Environment, 'uat')) }}:
+      value: 343c4b01-0aab-4ca9-83d3-817db099996b
+    ${{ elseif and(eq( parameters.Server, 'client3'), eq( parameters.Environment, 'prod')) }}:
+      value: c1c632d7-148b-41c8-942d-3e71b69260f4
+
+  - name: debeziumdockerfilePath
+    value: '$(Build.SourcesDirectory)/DebeziumDocker'
+  - name: kafkadockerfilePath
+    value: '$(Build.SourcesDirectory)/KafkaDocker' 
+  - name: zookeeperdockerfilePath
+    value: '$(Build.SourcesDirectory)/ZookeeperDocker'
+  - name: schemadockerfilePath
+    value: '$(Build.SourcesDirectory)/SchemaDocker' 
+  - name: imageRepository
+    value: 'cdcservice'
+  - name: containerRegistry
+    ${{ if eq( parameters.Server, 'client1') }}:
+      value: 'client1cinacrall.azurecr.io'
+    ${{ elseif and(eq( parameters.Server, 'client2'), eq( parameters.environment, 'uat')) }}:
+      value: 'client1cinacrall.azurecr.io'
+    ${{ elseif and(eq( parameters.Server, 'client2'), eq( parameters.environment, 'prod')) }}:
+      value: 'client1cinacrall.azurecr.io'
+    ${{ elseif and(eq( parameters.Server, 'client3'), eq( parameters.environment, 'uat')) }}:
+      value: 'client1cinacrall.azurecr.io'
+    ${{ elseif and(eq( parameters.Server, 'client3'), eq( parameters.environment, 'prod')) }}:
+      value: 'client1cinacrall.azurecr.io'
+    ${{ elseif and(eq( parameters.Server, 'client5'), eq( parameters.Environment, 'uat')) }}:
+      value: 343c4b01-0aab-4ca9-83d3-817db099996b
+  - name: imagePullSecret
+    value: docker-registry-creds
+  - name: tag
+    value: '$(Build.BuildId)'
+  - name: vmImageName
+    value: ubuntu-latest
+  - name: environment
+    ${{ if eq( parameters.Server, 'client1') }}:
+      value: ${{ parameters.environment }}
+    ${{ elseif and(eq( parameters.Server, 'client2'), eq( parameters.environment, 'uat')) }}:
+      value: client2-${{ parameters.environment }}
+    ${{ elseif and(eq( parameters.Server, 'client2'), eq( parameters.environment, 'prod')) }}:
+      value: client2
+    ${{ elseif and(eq( parameters.Server, 'client3'), eq( parameters.environment, 'uat')) }}:
+      value: client3-${{ parameters.environment }}
+    ${{ elseif and(eq( parameters.Server, 'client3'), eq( parameters.environment, 'prod')) }}:
+      value: client3
+    ${{ elseif and(eq( parameters.Server, 'client4'), eq( parameters.Environment, 'uat')) }}:
+      value: client4-${{ parameters.Environment }}
+    ${{ elseif and(eq( parameters.Server, 'client5'), eq( parameters.Environment, 'UAT')) }}:
+      value: client5-${{ parameters.Environment }}
+    ${{ elseif and(eq( parameters.Server, 'client5'), eq( parameters.Environment, 'prod')) }}:
+      value: client5-${{ parameters.Environment }}
+  
+  - name: kubernetesServer
+    ${{ if and(eq( parameters.Server, 'client1'), eq( parameters.Environment, 'dev')) }}:
+      value: client1-CIN-AKS-DQU
+    ${{ elseif and(eq( parameters.Server, 'client1'), eq( parameters.Environment, 'qa')) }}:
+      value: client1-CIN-AKS-DQU
+    ${{ elseif and(eq( parameters.Server, 'client1'), eq( parameters.Environment, 'stage')) }}:
+      value: client1-CIN-AKS-DQU
+    ${{ elseif and(eq( parameters.Server, 'client1'), eq( parameters.Environment, 'uat')) }}:
+      value: client1-CIN-AKS-DQU
+    ${{ elseif and(eq( parameters.Server, 'client1'), eq( parameters.Environment, 'prod')) }}:
+      value: client1-CIN-AKS-PROD
+    ${{ elseif and(eq( parameters.Server, 'client2'), eq( parameters.environment, 'uat')) }}:
+      value: client1-CIN-AKS-DQU
+    ${{ elseif and(eq( parameters.Server, 'client2'), eq( parameters.environment, 'prod')) }}:
+      value: client1cinaksprd
+    ${{ elseif and(eq( parameters.Server, 'client3'), eq( parameters.environment, 'uat')) }}:
+      value: client1-CIN-AKS-DQU
+    ${{ elseif and(eq( parameters.Server, 'client3'), eq( parameters.environment, 'prod')) }}:
+      value: client1-CIN-AKS-PROD
+    ${{ elseif and(eq( parameters.Server, 'client4'), eq( parameters.Environment, 'uat')) }}:
+      value: client4-EKS
+    ${{ elseif and(eq( parameters.Server, 'client5'), eq( parameters.Environment, 'uat')) }}:
+      value: client5-GKE
+
+  - name: serverEnvironment
+    value: ${{ parameters.server }}
+  
+  - name: awsResourceConnection # Separate variable for AWS
+    ${{ if eq(parameters.Server, 'client4') }}:
+      value: 'client4'
+    ${{ else }}:
+      value: 'client4'
+  
+  - name: sourceImage # Separate variable for AWS
+    ${{ if eq(parameters.Server, 'client4') }}:
+      value: '$(client4SourceImage)'
+    ${{ else }}:
+      value: '$(client4SourceImage)'
+  
+  - name: containerRegistryRegion # Separate variable for AWS
+    ${{ if eq(parameters.Server, 'client4') }}:
+      value: '$(client4EcrRegionName)'
+    ${{ else }}:
+      value: '$(client4EcrRegionName)'
+  - name: securefile
+    ${{ if and(eq( parameters.Server, 'client5'), eq( parameters.Environment, 'uat')) }}:
+      value: client5-uat.json
+    ${{ else }}:
+      value: client5-uat.json
+  
+  - name: ArtifactRegistry
+    ${{ if and(eq( parameters.Server, 'client5'), eq( parameters.Environment, 'uat')) }}:
+      value: '$(client5ArtifactRegistry)'
+    ${{ else }}:
+      value: '$(client5ArtifactRegistry)'
+
+  - name: gcpjson
+    value: '/home/vsts/work/_temp/$(securefile)'
+  # - name: LimitCPuforZookeeper
+  #   ${{ if parameters.freeResources }}:
+  #     value: 0
+  #   ${{ elseif parameters.useResources }}:
+  #     value: ${{ parameters.zookeeperLimitCPu }}
+  #   ${{ elseif parameters.staticResources }}:
+  #     value: 1.5
+
+  # - name: RequestCpuforZookeeper
+  #   ${{ if parameters.freeResources }}:
+  #     value: 0
+  #   ${{ elseif parameters.useResources }}:
+  #     value: ${{ parameters.zookeeperRequestCpu }}
+  #   ${{ elseif parameters.staticResources }}:
+  #     value: 1
+
+  # - name: LimitRamforZookeeper
+  #   ${{ if parameters.freeResources }}:
+  #     value: 0
+  #   ${{ elseif parameters.useResources }}:
+  #     value: ${{ parameters.zookeeperLimitRam }}
+  #   ${{ elseif parameters.staticResources }}:
+  #     value: 4
+  
+  # - name: RequestRamforZookeeper
+  #   ${{ if parameters.freeResources }}:
+  #     value: 0
+  #   ${{ elseif parameters.useResources }}:
+  #     value: ${{ parameters.zookeeperRequestram }}
+  #   ${{ elseif parameters.staticResources }}:
+  #     value: 2
+stages:
+  - stage: Build
+    displayName: Build and push stage
+    jobs:
+    - job: Build
+      displayName: Build
+      pool:
+        vmImage: $(vmImageName)
+      steps:
+      # - task: Docker@2
+      #   displayName: Build and push an debezium image to container registry
+      #   inputs:
+      #     command: buildAndPush
+      #     repository: debezium-dpai-$(serverEnvironment)-$(environment)
+      #     dockerfile: $(debeziumdockerfilePath)
+      #     containerRegistry: $(dockerRegistryServiceConnection)
+      #     tags: |
+      #       $(tag)
+
+      - task: DownloadSecureFile@1
+        displayName: Downloading GCP Json File
+        condition: eq(variables.cloudProvider, 'gcp')
+        inputs:
+          secureFile: '$(securefile)'
+      
+      - task: GcloudRunner@0
+        displayName: Activating GCP Service
+        condition: eq(variables.cloudProvider, 'gcp')
+        inputs:
+          command: 'auth activate-service-account'
+          arguments: '--key-file=$(gcpjson)'
+      
+      - task: Docker@2
+        displayName: Building Docker Image
+        condition: or(eq(variables.cloudProvider, 'azure'), eq(variables.cloudProvider, 'aws'))
+        inputs:
+          containerRegistry: '$(dockerRegistryServiceConnection)'
+          repository: debezium-dpai-$(serverEnvironment)-$(environment)
+          command: 'build'
+          Dockerfile: '$(debeziumdockerfilePath)'
+          tags: '$(tag)'
+          arguments: '--no-cache'
+
+      - task: Docker@2
+        displayName: Pushing Docker Image To ACR
+        condition: eq(variables.cloudProvider, 'azure')
+        inputs:
+          containerRegistry: '$(dockerRegistryServiceConnection)'
+          repository: debezium-dpai-$(serverEnvironment)-$(environment)
+          command: 'push'
+          tags: '$(tag)'
+
+      - task: Docker@2
+        displayName: Build and push an image to Google Artifact Registry
+        condition: eq(variables.cloudProvider, 'gcp')
+        inputs:
+          command: buildAndPush
+          arguments: --no-cache
+          repository: '$(ArtifactRegistry)/debezium-dpai-$(imageRepository)-$(Environment)'
+          dockerfile: '$(debeziumdockerfilePath)'
+          containerRegistry: $(dockerRegistryServiceConnection)
+          tags: |
+            $(tag)
+        
+      - task: ECRPushImage@1
+        displayName: Pushing Docker Image To ECR
+        condition: eq(variables.cloudProvider, 'aws')
+        inputs:
+          awsCredentials: '$(awsResourceConnection)'
+          regionName: '$(containerRegistryRegion)'
+          imageSource: 'imagename'
+          sourceImageName: '$(sourceImage)/debezium-dpai-client4-$(environment)'
+          sourceImageTag: '$(tag)'
+          repositoryName: 'client4-electrics-uat'
+          pushTag: 'debezium-dpai-client4-$(environment)-$(tag)'
+          tags: |
+            $(tag)
+      - upload: deployments
+        artifact: deployments 
+
+      # - task: Docker@2
+      #   displayName: Build and push an kafka image to container registry
+      #   inputs:
+      #     command: buildAndPush
+      #     repository: kafka-dpai-$(serverEnvironment)-$(environment)
+      #     dockerfile: $(kafkadockerfilePath)
+      #     containerRegistry: $(dockerRegistryServiceConnection)
+      #     tags: |
+      #       $(tag)
+      
+      - task: Docker@2
+        displayName: Building Docker Image
+        condition: or(eq(variables.cloudProvider, 'azure'), eq(variables.cloudProvider, 'aws'))
+        inputs:
+          containerRegistry: '$(dockerRegistryServiceConnection)'
+          repository: kafka-dpai-$(serverEnvironment)-$(environment)
+          command: 'build'
+          Dockerfile: '$(kafkadockerfilePath)'
+          tags: '$(tag)'
+          arguments: '--no-cache'
+    
+      - task: Docker@2
+        displayName: Pushing Docker Image To ACR
+        condition: eq(variables.cloudProvider, 'azure')
+        inputs:
+          containerRegistry: '$(dockerRegistryServiceConnection)'
+          repository: kafka-dpai-$(serverEnvironment)-$(environment)
+          command: 'push'
+          tags: '$(tag)'
+
+      - task: Docker@2
+        displayName: Build and push an image to Google Artifact Registry
+        condition: eq(variables.cloudProvider, 'gcp')
+        inputs:
+          command: buildAndPush
+          arguments: --no-cache
+          repository: '$(ArtifactRegistry)/kafka-dpai-$(imageRepository)-$(Environment)'
+          dockerfile: '$(kafkadockerfilePath)'
+          containerRegistry: $(dockerRegistryServiceConnection)
+          tags: |
+            $(tag)
+        
+      - task: ECRPushImage@1
+        displayName: Pushing Docker Image To ECR
+        condition: eq(variables.cloudProvider, 'aws')
+        inputs:
+          awsCredentials: '$(awsResourceConnection)'
+          regionName: '$(containerRegistryRegion)'
+          imageSource: 'imagename'
+          sourceImageName: '$(sourceImage)/kafka-dpai-client4-$(environment)'
+          sourceImageTag: '$(tag)'
+          repositoryName: 'client4-electrics-uat'
+          pushTag: 'kafka-dpai-client4-$(environment)-$(tag)'
+          tags: |
+            $(tag)
+      - upload: deployments
+        artifact: deployments 
+
+      # - task: Docker@2
+      #   displayName: Build and push an zookeeper image to container registry
+      #   inputs:
+      #     command: buildAndPush
+      #     repository: zookeeper-dpai-$(serverEnvironment)-$(environment)
+      #     dockerfile: $(zookeeperdockerfilePath)
+      #     containerRegistry: $(dockerRegistryServiceConnection)
+      #     tags: |
+      #       $(tag)
+
+      - task: Docker@2
+        displayName: Building Docker Image
+        condition: or(eq(variables.cloudProvider, 'azure'), eq(variables.cloudProvider, 'aws'))
+        inputs:
+          containerRegistry: '$(dockerRegistryServiceConnection)'
+          repository: zookeeper-dpai-$(serverEnvironment)-$(environment)
+          command: 'build'
+          Dockerfile: '$(zookeeperdockerfilePath)'
+          tags: '$(tag)'
+          arguments: '--no-cache'
+    
+      - task: Docker@2
+        displayName: Pushing Docker Image To ACR
+        condition: eq(variables.cloudProvider, 'azure')
+        inputs:
+          containerRegistry: '$(dockerRegistryServiceConnection)'
+          repository: zookeeper-dpai-$(serverEnvironment)-$(environment)
+          command: 'push'
+          tags: '$(tag)'
+          
+      - task: Docker@2
+        displayName: Build and push an image to Google Artifact Registry
+        condition: eq(variables.cloudProvider, 'gcp')
+        inputs:
+          command: buildAndPush
+          arguments: --no-cache
+          repository: '$(ArtifactRegistry)/zookeeper-dpai-$(imageRepository)-$(Environment)'
+          dockerfile: '$(zookeeperdockerfilePath)'
+          containerRegistry: $(dockerRegistryServiceConnection)
+          tags: |
+            $(tag)
+      - task: ECRPushImage@1
+        displayName: Pushing Docker Image To ECR
+        condition: eq(variables.cloudProvider, 'aws')
+        inputs:
+          awsCredentials: '$(awsResourceConnection)'
+          regionName: '$(containerRegistryRegion)'
+          imageSource: 'imagename'
+          sourceImageName: '$(sourceImage)/zookeeper-dpai-client4-$(environment)'
+          sourceImageTag: '$(tag)'
+          repositoryName: 'client4-electrics-uat'
+          pushTag: 'zookeeper-dpai-client4-$(environment)-$(tag)'
+          tags: |
+            $(tag)
+      - upload: deployments
+        artifact: deployments
+
+      # - task: Docker@2
+      #   displayName: Build and push an schema image to container registry
+      #   inputs:
+      #     command: buildAndPush
+      #     repository: schema-dpai-$(serverEnvironment)-$(environment)
+      #     dockerfile: $(schemadockerfilePath)
+      #     containerRegistry: $(dockerRegistryServiceConnection)
+      #     tags: |
+      #       $(tag)
+      
+      - task: Docker@2
+        displayName: Building Docker Image
+        condition: or(eq(variables.cloudProvider, 'azure'), eq(variables.cloudProvider, 'aws'))
+        inputs:
+          containerRegistry: '$(dockerRegistryServiceConnection)'
+          repository: schema-dpai-$(serverEnvironment)-$(environment)
+          command: 'build'
+          Dockerfile: '$(schemadockerfilePath)'
+          tags: '$(tag)'
+          arguments: '--no-cache'
+    
+      - task: Docker@2
+        displayName: Pushing Docker Image To ACR
+        condition: eq(variables.cloudProvider, 'azure')
+        inputs:
+          containerRegistry: '$(dockerRegistryServiceConnection)'
+          repository: schema-dpai-$(serverEnvironment)-$(environment)
+          command: 'push'
+          tags: '$(tag)'
+    
+
+      - task: Docker@2
+        displayName: Build and push an image to Google Artifact Registry
+        condition: eq(variables.cloudProvider, 'gcp')
+        inputs:
+          command: buildAndPush
+          arguments: --no-cache
+          repository: '$(ArtifactRegistry)/schema-dpai-$(imageRepository)-$(Environment)'
+          dockerfile: '$(schemadockerfilePath)'
+          containerRegistry: $(dockerRegistryServiceConnection)
+          tags: |
+            $(tag)
+        
+      - task: ECRPushImage@1
+        displayName: Pushing Docker Image To ECR
+        condition: eq(variables.cloudProvider, 'aws')
+        inputs:
+          awsCredentials: '$(awsResourceConnection)'
+          regionName: '$(containerRegistryRegion)'
+          imageSource: 'imagename'
+          sourceImageName: '$(sourceImage)/schema-dpai-client4-$(environment)'
+          sourceImageTag: '$(tag)'
+          repositoryName: 'client4-electrics-uat'
+          pushTag: 'schema-dpai-client4-$(environment)-$(tag)'
+          tags: |
+            $(tag)
+      - upload: deployments
+        artifact: deployments
+
+  - stage: Deploy_CDC
+    displayName: Deploy to AKS CDC
+    dependsOn: Build
+    jobs:
+    - deployment:
+      timeoutInMinutes: 20
+      displayName: Deploy to AKS CDC
+      pool:
+        vmImage: $(vmImageName)
+      environment: $(environment)
+      strategy:
+        runOnce:
+          deploy:
+            steps:
+            - script: echo "##vso[task.setvariable variable=serverEnvironment]$(echo '${{ parameters.server }}' | tr '[:upper:]' '[:lower:]')"
+              displayName: 'Convert serverEnvironment to lowercase'
+            - task: CmdLine@2
+              inputs:
+                script: |
+                    # Navigate to the deployments directory and list files
+                    cd $(Pipeline.Workspace)/deployments
+                    ls -lrt
+                    # memoryLimit="$(LimitRamforZookeeper)Gi"
+                    # memoryRequest="$(RequestRamforZookeeper)Gi"
+                    # Replace placeholders in the YAML file
+                    sed -i "s|name_space|$(environment)|g; s|server_environment|$(serverEnvironment)|g; s|container_registry|$(containerRegistry)|g; s|build_id|$(Build.BuildId)|g" $(Pipeline.Workspace)/deployments/zookeeper.yaml
+                    # sed -i "s|cpu_limit|$(LimitCPuforZookeeper)|g" $(Pipeline.Workspace)/deployments/zookeeper.yaml
+                    # sed -i "s|memory_limit|$memoryLimit|g" $(Pipeline.Workspace)/deployments/zookeeper.yaml
+                    # sed -i "s|cpu_request|$(RequestCpuforZookeeper)|g" $(Pipeline.Workspace)/deployments/zookeeper.yaml
+                    # sed -i "s|memory_request|$memoryRequest|g" $(Pipeline.Workspace)/deployments/zookeeper.yaml
+                    cat $(Pipeline.Workspace)/deployments/zookeeper.yaml
+
+                    # kafka
+                    sed -i "s|name_space|$(environment)|g; s|server_environment|$(serverEnvironment)|g; s|container_registry|$(containerRegistry)|g; s|build_id|$(Build.BuildId)|g" $(Pipeline.Workspace)/deployments/kafka.yaml
+                    cat $(Pipeline.Workspace)/deployments/kafka.yaml
+
+                    # Schema Registry
+                    sed -i "s|name_space|$(environment)|g; s|server_environment|$(serverEnvironment)|g; s|container_registry|$(containerRegistry)|g; s|build_id|$(Build.BuildId)|g" $(Pipeline.Workspace)/deployments/schema-registry.yaml
+                    cat $(Pipeline.Workspace)/deployments/schema-registry.yaml
+                  
+                    # Debezium
+                    sed -i "s|name_space|$(environment)|g; s|server_environment|$(serverEnvironment)|g; s|container_registry|$(containerRegistry)|g; s|build_id|$(Build.BuildId)|g" $(Pipeline.Workspace)/deployments/debezium.yaml
+                    cat $(Pipeline.Workspace)/deployments/debezium.yaml
+
+                    # Kafdrop
+                    sed -i "s|name_space|$(environment)|g; s|server_environment|$(serverEnvironment)|g; s|container_registry|$(containerRegistry)|g; s|build_id|$(Build.BuildId)|g" $(Pipeline.Workspace)/deployments/kafdrop.yaml
+                    cat $(Pipeline.Workspace)/deployments/kafdrop.yaml
+            # Delete all deployments and start in the orders after deployments
+            - task: KubernetesManifest@1
+              displayName: Delete deployment kafdrop
+              inputs:
+                kubernetesServiceConnection: $(kubernetesServer)
+                namespace: $(environment)
+                action: delete
+                arguments: statefulset kafdrop
+              continueOnError: true  # Continue even if tests fail
+
+            - task: KubernetesManifest@1
+              displayName: Delete deployment debezium
+              inputs:
+                kubernetesServiceConnection: $(kubernetesServer)
+                namespace: $(environment)
+                action: delete
+                arguments: statefulset debezium
+              continueOnError: true  # Continue even if tests fail
+
+            - task: KubernetesManifest@1
+              displayName: Delete deployment schema-registry
+              inputs:
+                kubernetesServiceConnection: $(kubernetesServer)
+                namespace: $(environment)
+                action: delete
+                arguments: statefulset schema-cdc
+              continueOnError: true  # Continue even if tests fail
+
+            - task: KubernetesManifest@1
+              displayName: Delete deployment kafka-service
+              inputs:
+                kubernetesServiceConnection: $(kubernetesServer)
+                namespace: $(environment)
+                action: delete
+                arguments: statefulset kafka-service
+              continueOnError: true  # Continue even if tests fail
+
+            - task: KubernetesManifest@1
+              displayName: Delete deployment zookeeper
+              inputs:
+                kubernetesServiceConnection: $(kubernetesServer)
+                namespace: $(environment)
+                action: delete
+                arguments: statefulset zookeeper
+              continueOnError: true  # Continue even if tests fail
+            
+            - task: KubernetesManifest@1
+              displayName: Deploy zookeeper to Kubernetes cluster
+              inputs:
+                kubernetesServiceConnection: $(kubernetesServer)
+                namespace: $(environment)
+                action: deploy
+                manifests: |
+                  $(Pipeline.Workspace)/deployments/zookeeper.yaml
+                  $(Pipeline.Workspace)/deployments/zookeeper-service.yaml
+                imagePullSecrets: |
+                  $(imagePullSecret)
+            
+            - task: KubernetesManifest@1
+              displayName: Deploy kafka-service to Kubernetes cluster
+              inputs:
+                kubernetesServiceConnection: $(kubernetesServer)
+                namespace: $(environment)
+                action: deploy
+                manifests: |
+                  $(Pipeline.Workspace)/deployments/kafka.yaml
+                  $(Pipeline.Workspace)/deployments/kafka-service.yaml
+                imagePullSecrets: |
+                  $(imagePullSecret)
+
+            - task: KubernetesManifest@1
+              displayName: Deploy schema-registry to Kubernetes cluster
+              inputs:
+                kubernetesServiceConnection: $(kubernetesServer)
+                namespace: $(environment)
+                action: deploy
+                manifests: |
+                  $(Pipeline.Workspace)/deployments/schema-registry.yaml
+                  $(Pipeline.Workspace)/deployments/schema-service.yaml
+                imagePullSecrets: |
+                  $(imagePullSecret)
+
+            - task: KubernetesManifest@1
+              displayName: Deploy debezium to Kubernetes cluster
+              inputs:
+                kubernetesServiceConnection: $(kubernetesServer)
+                namespace: $(environment)
+                action: deploy
+                manifests: |
+                  $(Pipeline.Workspace)/deployments/debezium.yaml
+                  $(Pipeline.Workspace)/deployments/debezium-service.yaml
+                imagePullSecrets: |
+                  $(imagePullSecret)
+            
+            - task: KubernetesManifest@1
+              displayName: Deploy kafdrop to Kubernetes cluster
+              inputs:
+                kubernetesServiceConnection: $(kubernetesServer)
+                namespace: $(environment)
+                action: deploy
+                manifests: |
+                  $(Pipeline.Workspace)/deployments/kafdrop.yaml
+                  $(Pipeline.Workspace)/deployments/kafdrop-service.yaml
+                imagePullSecrets: |
+                  $(imagePullSecret)
