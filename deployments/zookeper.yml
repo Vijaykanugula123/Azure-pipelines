@@ -1,0 +1,73 @@
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: zookeeper-data-volume
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: zookeeper-log-volume
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: zookeeper
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: zookeeper
+  template:
+    metadata:
+      labels:
+        app: zookeeper
+    spec:
+      volumes:
+        - name: zookeeper-data-volume
+          persistentVolumeClaim:
+            claimName: zookeeper-data-volume
+        - name: zookeeper-log-volume
+          persistentVolumeClaim:
+            claimName: zookeeper-log-volume
+      nodeSelector:
+        node-type: name_space
+      containers:
+        - name: zookeeper
+          image: container_registry/zookeeper-server_environment-name_space:build_id
+          envFrom:
+          - secretRef:
+              name: kafka-zookeeper-config-secrets
+          ports:
+            - containerPort: 2181
+              protocol: TCP
+            - containerPort: 2888
+              protocol: TCP
+            - containerPort: 3888
+              protocol: TCP
+          # resources:                          
+          #   limits:                           
+          #     cpu: cpu_limit
+          #     memory: memory_limit
+          #   requests:
+          #     cpu: cpu_request
+          #     memory: memory_request
+          volumeMounts:
+            - name: zookeeper-data-volume
+              mountPath: /var/lib/zookeeper/data
+            - name: zookeeper-log-volume
+              mountPath: /var/lib/zookeeper/log
+
